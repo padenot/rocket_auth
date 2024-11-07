@@ -64,7 +64,7 @@ impl<'r> FromRequest<'r> for Auth<'r> {
         let users: &State<Users> = if let Outcome::Success(users) = req.guard().await {
             users
         } else {
-            return Outcome::Failure((Status::InternalServerError, Error::UnmanagedStateError));
+            return Outcome::Error((Status::InternalServerError, Error::UnmanagedStateError));
         };
 
         Outcome::Success(Auth {
@@ -253,13 +253,14 @@ impl<'a> Auth<'a> {
     ///     auth.change_password("new password");
     /// # }
     /// ```
-    #[throws(Error)]
-    pub async fn change_password(&self, password: &str) {
+    pub async fn change_password(&self, password: &str) -> Result<(), Box<dyn std::error::Error>> {
         if self.is_auth() {
             let session = self.get_session()?;
             let mut user = self.users.get_by_id(session.id).await?;
             user.set_password(password)?;
             self.users.modify(&user).await?;
+
+            Ok(())
         } else {
             throw!(Error::UnauthorizedError)
         }

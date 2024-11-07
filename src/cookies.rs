@@ -2,6 +2,7 @@ use crate::prelude::*;
 use rocket::http::{CookieJar, Status};
 use rocket::request::{FromRequest, Outcome, Request};
 use serde_json::from_str;
+use crate::error;
 
 /// The Session guard can be used to retrieve user session data.
 /// Unlike `User`, using session does not verify that the session data is
@@ -34,7 +35,7 @@ impl<'r> FromRequest<'r> for Session {
         if let Some(session) = get_session(cookies) {
             Outcome::Success(session)
         } else {
-            Outcome::Failure((Status::Unauthorized, Error::UnauthorizedError))
+            Outcome::Error((Status::Unauthorized, error::Error::UnauthorizedError))
         }
     }
 }

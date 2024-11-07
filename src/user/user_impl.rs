@@ -4,6 +4,7 @@ use super::rand_string;
 use crate::prelude::*;
 use rocket::http::Status;
 use rocket::request::{FromRequest, Outcome, Request};
+use crate::error;
 
 impl User {
     /// This method allows to reset the password of a user.
@@ -14,8 +15,8 @@ impl User {
     /// This function will fail in case the password is not secure enough.
     /// 
     /// ```rust
-    /// # use rocket::{State, post};
-    /// # use rocket_auth::{Error, Users};
+    /// use rocket::{State, post};
+    /// use rocket_auth::{Error, Users, User};
     /// #[post("/reset-password/<new_password>")]
     /// async fn reset_password(mut user: User, users: &State<Users>, new_password: String) -> Result<(), Error> {
     ///     user.set_password(&new_password);
@@ -23,30 +24,30 @@ impl User {
     ///     Ok(())
     /// }
     /// ```
-    #[throws(Error)]
-    pub fn set_password(&mut self, new: &str) {
+    pub fn set_password(&mut self, new: &str) -> Result<(), Box<dyn std::error::Error>> {
         crate::forms::is_secure(new)?;
         let password = new.as_bytes();
         let salt = rand_string(10);
         let config = argon2::Config::default();
-        let hash = argon2::hash_encoded(password, salt.as_bytes(), &config).unwrap();
+        let hash = argon2::hash_encoded(password, salt.as_bytes(), &config)?;
         self.password = hash;
+        Ok(())
     }
 
     /// Compares the password of the currently authenticated user with a another password.
     /// Useful for checking password before resetting email/password.
     /// To avoid bruteforcing this function should not be directly accessible from a route.
     /// Additionally, it is good to implement rate limiting on routes using this function.
-    #[throws(Error)]
-    pub fn compare_password(&self, password: &str) -> bool {
-        verify_encoded(&self.password, password.as_bytes())?
+    
+    pub fn compare_password(&self, password: &str) -> Result<bool, argon2::Error> {
+        verify_encoded(&self.password, password.as_bytes())
     }
 
     /// This is an accessor function for the private `id` field.
     /// This field is private, so that it is not modified by accident when updating a user.
     /// ```rust
-    /// # use rocket::{State, get};
-    /// # use rocket_auth::{Error, User};
+    /// use rocket::{State, get};
+    /// use rocket_auth::{Error, User};
     /// #[get("/show-my-id")]
     /// fn show_my_id(user: User) -> String {
     ///     format!("Your user_id is: {}", user.id())
@@ -58,8 +59,8 @@ impl User {
     /// This is an accessor field for the private `email` field.
     /// This field is private so an email cannot be updated without checking whether it is valid.
     /// ```rust
-    /// # use rocket::{State, get};
-    /// # use rocket_auth::{Error, User};
+    /// use rocket::{State, get};
+    /// use rocket_auth::{Error, User};
     /// #[get("/show-my-email")]
     /// fn show_my_email(user: User) -> String {
     ///     format!("Your user_id is: {}", user.email())
@@ -83,10 +84,10 @@ impl User {
     ///     Ok("Your user email was changed".into())
     /// }
     /// ```
-    #[throws(Error)]
-    pub fn set_email(&mut self, email: &str) {
+    pub fn set_email(&mut self, email: &str) -> Result<(), Error>{
         if validator::validate_email(email) {
             self.email = email.to_lowercase();
+            Ok(())
         } else {
             throw!(Error::InvalidEmailAddressError)
         }
@@ -113,13 +114,13 @@ impl<'r> FromRequest<'r> for User {
         let guard = request.guard().await;
         let auth: Auth = match guard {
             Success(auth) => auth,
-            Failure(x) => return Failure(x),
+            Error(x) => return Error(x),
             Forward(x) => return Forward(x),
         };
         if let Some(user) = auth.get_user().await {
             Outcome::Success(user)
         } else {
-            Outcome::Failure((Status::Unauthorized, Error::UnauthorizedError))
+            Outcome::Error((Status::Unauthorized, error::Error::UserNotFoundError))
         }
     }
 }
@@ -132,7 +133,7 @@ impl<'r> FromRequest<'r> for AdminUser {
         let guard = request.guard().await;
         let auth: Auth = match guard {
             Success(auth) => auth,
-            Failure(x) => return Failure(x),
+            Error(x) => return Error(x),
             Forward(x) => return Forward(x),
         };
         if let Some(user) = auth.get_user().await {
@@ -140,11 +141,11 @@ impl<'r> FromRequest<'r> for AdminUser {
                 return Outcome::Success(AdminUser(user));
             }
         }
-        Outcome::Failure((Status::Unauthorized, Error::UnauthorizedError))
+        Outcome::Error((Status::Unauthorized, error::Error::UnauthorizedError))
     }
 }
 
-use std::ops::*;
+use std::{ops::*, result};
 use argon2::verify_encoded;
 
 impl Deref for AdminUser {

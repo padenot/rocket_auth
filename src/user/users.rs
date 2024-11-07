@@ -35,20 +35,19 @@ impl Users {
     /// It is necessary to call it explicitly when casting the `Users` struct from an already
     /// established database connection and if the table hasn't been created yet. If the table
     /// already exists then this step is not necessary.
-    /// ```rust,
-    /// # use sqlx::{sqlite::SqlitePool, Connection};
-    /// # use rocket_auth::{Users, Error};
+    /// ```rust
+    ///  use sqlx::{sqlite::SqlitePool, Connection};
+    ///  use rocket_auth::{Users, Error};
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Error> {
-    /// let mut conn = SqlitePool::connect("database.db").await?;
+    /// let mut conn = SqlitePool::connect("./database.db").await?;
     /// let mut users: Users = conn.into();
     /// users.open_redis("redis://127.0.0.1/")?;
     /// users.create_table().await?;
     /// # Ok(()) }
     /// ```
-    #[throws(Error)]
-    pub async fn create_table(&self) {
-        self.conn.init().await?
+    pub async fn create_table(&self) -> Result<(), Error> {
+        self.conn.init().await
     }
     /// Opens a redis connection. It allows for sessions to be stored persistently across
     /// different launches. Note that persistent sessions also require a `secret_key` to be set in the [Rocket.toml](https://rocket.rs/v0.5-rc/guide/configuration/#configuration) configuration file.
@@ -66,10 +65,10 @@ impl Users {
     /// # Ok(()) }
     /// ```
     #[cfg(feature = "redis")]
-    #[throws(Error)]
-    pub fn open_redis(&mut self, path: impl redis::IntoConnectionInfo) {
+    pub fn open_redis(&mut self, path: impl redis::IntoConnectionInfo) -> Result<(), Error> {
         let client = redis::Client::open(path)?;
         self.sess = Box::new(client);
+        Ok(())
     }
 
     /// It creates a `Users` instance by connecting  it to a sqlite database.
@@ -90,15 +89,14 @@ impl Users {
     /// # Ok(()) }
     /// ```
     #[cfg(feature = "rusqlite")]
-    #[throws(Error)]
-    pub fn open_rusqlite(path: impl AsRef<Path>) -> Self {
+    pub fn open_rusqlite(path: impl AsRef<Path>) -> Result<Self, Error> {
         use tokio::sync::Mutex;
         let users = Users {
             conn: Box::new(Mutex::new(rusqlite::Connection::open(path)?)),
             sess: Box::new(chashmap::CHashMap::new()),
         };
         futures::executor::block_on(users.conn.init())?;
-        users
+        Ok(users)
     }
 
     /// It creates a `Users` instance by connecting  it to a postgres database.
@@ -117,8 +115,7 @@ impl Users {
     ///
     /// ```
     #[cfg(feature = "sqlx-postgres")]
-    #[throws(Error)]
-    pub async fn open_postgres(path: &str) -> Self {
+    pub async fn open_postgres(path: &str) -> Result<Self, Error> {
         use sqlx::PgPool;
         let conn = PgPool::connect(path).await?;
         conn.init().await?;
@@ -126,7 +123,7 @@ impl Users {
             conn: Box::new(conn),
             sess: Box::new(chashmap::CHashMap::new()),
         };
-        users
+        Ok(users)
     }
 
     /// It creates a `Users` instance by connecting  it to a mysql database.
@@ -145,12 +142,11 @@ impl Users {
     /// ```
 
     #[cfg(feature = "sqlx-mysql")]
-    #[throws(Error)]
-    pub async fn open_mysql(path: &str) -> Self {
+    pub async fn open_mysql(path: &str) -> Result<Self, Error> {
         let conn = sqlx::MySqlPool::connect(path).await?;
         let users: Users = conn.into();
         users.create_table().await?;
-        users
+        Ok(users)
     }
 
     /// It queries a user by their email.
@@ -165,9 +161,8 @@ impl Users {
     /// }
     /// # fn main() {}
     /// ```
-    #[throws(Error)]
-    pub async fn get_by_email(&self, email: &str) -> User {
-        self.conn.get_user_by_email(email).await?
+    pub async fn get_by_email(&self, email: &str) -> Result<User, Error> {
+        self.conn.get_user_by_email(email).await
     }
 
     /// It queries a user by their email.
@@ -182,9 +177,9 @@ impl Users {
     /// # }
     /// # fn main() {}
     /// ```
-    #[throws(Error)]
-    pub async fn get_by_id(&self, user_id: i32) -> User {
-        self.conn.get_user_by_id(user_id).await?
+    pub async fn get_by_id(&self, user_id: i32) -> Result<User, Error> {
+        self.conn.get_user_by_id(user_id).await
+
     }
 
     /// Inserts a new user in the database. It will fail if the user already exists.
@@ -198,22 +193,25 @@ impl Users {
     /// }
     /// # fn main() {}
     /// ```
-    #[throws(Error)]
-    pub async fn create_user(&self, email: &str, password: &str, is_admin: bool) {
+    pub async fn create_user(&self, email: &str, password: &str, is_admin: bool) -> Result<(), Error> {
         let password = password.as_bytes();
         let salt = rand_string(30);
         let config = argon2::Config::default();
         let hash = argon2::hash_encoded(password, salt.as_bytes(), &config).unwrap();
         self.conn.create_user(email, &hash, is_admin).await?;
+
+        Ok(())
     }
 
     /// Deletes a user from de database. Note that this method won't delete the session.
     /// To do that use [`Auth::delete`](crate::Auth::delete).
-    /// ```
+    /// ```rust
+    /// use rocket::{get, State};
+    /// use rocket_auth::{Users, User, Error};
     /// #[get("/delete_user/<id>")]
-    /// async fn delete_user(id: i32, users: &State<Users>) -> Result<String> {
+    /// async fn delete_user(id: i32, users: &State<Users>) -> Result<String, Error> {
     ///     users.delete(id).await?;
-    ///     Ok("The user has been deleted.")
+    ///     Ok(String::from("The user has been deleted."))
     /// }
     /// ```
     #[throws(Error)]
@@ -240,8 +238,8 @@ impl Users {
 
 /// A `Users` instance can also be created from a database connection.
 /// ```rust
-/// # use rocket_auth::{Users, Error};
-/// # use tokio_postgres::NoTls;
+/// use rocket_auth::{Users, Error};
+/// use tokio_postgres::NoTls;
 /// # async fn func() -> Result<(), Error> {
 /// let (client, connection) = tokio_postgres::connect("host=localhost user=postgres", NoTls).await?;
 /// let users: Users = client.into();
