@@ -225,7 +225,7 @@ impl Users {
     /// # use rocket_auth::{Users, Error};
     /// # async fn func(users: Users) -> Result<(), Error> {
     /// let mut user = users.get_by_id(4).await?;
-    /// user.set_email("new@email.com");
+    /// user.set_email("new@email.com".to_string());
     /// user.set_password("new password");
     /// users.modify(&user).await?;
     /// # Ok(())}

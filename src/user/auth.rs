@@ -7,6 +7,21 @@ use rocket::Request;
 use rocket::State;
 use serde_json::json;
 use std::time::Duration;
+use regex::Regex;
+
+
+
+    /// Validates an email address (helper function).
+pub fn validate_email(email: &String) -> bool {
+    let expr = Regex::new("^[\\w\\.-]+@[\\w\\.-]+\\.[a-zA-Z]{2,6}$");
+
+    if let Ok(reg_ex) = expr {
+        return reg_ex.is_match(&email)
+    } else {
+        return false
+    }
+    
+}
 
 /// The [`Auth`] guard allows to log in, log out, sign up, modify, and delete the currently (un)authenticated user.
 /// For more information see [`Auth`].
@@ -222,7 +237,7 @@ impl<'a> Auth<'a> {
     pub fn logout(&self) {
         let session = self.get_session()?;
         self.users.logout(session)?;
-        self.cookies.remove_private(Cookie::named("rocket_auth"));
+        self.cookies.remove_private(Cookie::build("rocket_auth"));
     }
     /// Deletes the account of the currently authenticated user.
     /// ```rust
@@ -238,7 +253,7 @@ impl<'a> Auth<'a> {
         if self.is_auth() {
             let session = self.get_session()?;
             self.users.delete(session.id).await?;
-            self.cookies.remove_private(Cookie::named("rocket_auth"));
+            self.cookies.remove_private("rocket_auth");
         } else {
             throw!(Error::UnauthenticatedError)
         }
@@ -273,18 +288,18 @@ impl<'a> Auth<'a> {
     /// auth.change_email("new@email.com".into());
     /// # }
     /// ```
-    #[throws(Error)]
-    pub async fn change_email(&self, email: String) {
+    pub async fn change_email(&self, email: String) -> Result<(), Error> {
         if self.is_auth() {
-            if !validator::validate_email(&email) {
-                throw!(Error::InvalidEmailAddressError)
+            if !validate_email(&email) {
+                return Err(Error::InvalidEmailAddressError)
             }
             let session = self.get_session()?;
             let mut user = self.users.get_by_id(session.id).await?;
             user.email = email.to_lowercase();
             self.users.modify(&user).await?;
+            return Ok(())
         } else {
-            throw!(Error::UnauthorizedError)
+            return Err(Error::UnauthorizedError)
         }
     }
 
@@ -315,5 +330,23 @@ impl<'a> Auth<'a> {
         } else {
             throw!(Error::UnauthorizedError)
         }
+    }
+}
+
+
+
+#[cfg(test)]
+mod test {
+
+    use super::validate_email;
+
+
+    #[test]
+    fn test_validate_email() {
+
+        let good_mail = String::from("some.example@gmail.com");
+        let bad_mail = String::from("@fak,.r");
+        assert!(validate_email(&good_mail));
+        assert!(!(validate_email(&bad_mail)));
     }
 }

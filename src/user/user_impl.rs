@@ -1,4 +1,4 @@
-use super::auth::Auth;
+use super::auth::{Auth, validate_email};
 use super::rand_string;
 
 use crate::prelude::*;
@@ -79,13 +79,13 @@ impl User {
     /// #[get("/set-email/<email>")]
     /// async fn set_email(email: String, auth: Auth<'_>) -> Result<String, Error> {
     ///     let mut user = auth.get_user().await.unwrap();
-    ///     user.set_email(&email)?;
+    ///     user.set_email(email)?;
     ///     auth.users.modify(&user).await?;
     ///     Ok("Your user email was changed".into())
     /// }
     /// ```
-    pub fn set_email(&mut self, email: &str) -> Result<(), Error>{
-        if validator::validate_email(email) {
+    pub fn set_email(&mut self, email: String) -> Result<(), Error>{
+        if validate_email(&email) {
             self.email = email.to_lowercase();
             Ok(())
         } else {
